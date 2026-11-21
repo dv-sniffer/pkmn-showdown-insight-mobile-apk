@@ -1,35 +1,16 @@
 (function(){
-if (window.ShowdownInsight) { window.ShowdownInsight.refresh(); return; }
-const style=document.createElement('style'); style.textContent=`
-#si-panel{position:fixed;z-index:2147483646;left:8px;right:8px;bottom:8px;max-height:52vh;overflow:auto;background:#101827;color:#f1f5f9;border:1px solid #526176;border-radius:13px;box-shadow:0 8px 30px #000a;font:13px system-ui;padding:12px;display:none}
-#si-panel button{background:#304c76;color:white;border:0;border-radius:6px;padding:6px;margin:3px}
-#si-panel .si-muted{color:#b4c3d7;font-size:11px}#si-panel .si-move{border-top:1px solid #344055;padding:8px 0}
-`; document.head.appendChild(style);
-const panel=document.createElement('section'); panel.id='si-panel'; panel.innerHTML='<b>Showdown Insight · Gen 9 Random</b><button id="si-close">Close</button><div id="si-body">Open a battle to see available moves.</div>';
-document.body.appendChild(panel);
-panel.querySelector('#si-close').onclick=()=>panel.style.display='none';
-function text(el){return (el?.textContent||'').trim()}
-function activeBattle(){return [...document.querySelectorAll('.battle-room,.ps-room')].find(el=>el.querySelector('.battle,.battle-controls,.movemenu'))}
-function getMoves(room){
- const buttons=[...room.querySelectorAll('.movemenu button, .movemenu .button, button[name="chooseMove"]')];
- return buttons.map((b,i)=>({name:(b.getAttribute('data-move')||text(b.querySelector('.movename'))||text(b).split('\n')[0]).trim(),disabled:b.disabled||b.classList.contains('disabled'),index:i})).filter(x=>x.name);
-}
-function analyze(name){
- // Use Showdown's own publicly loaded move data if available; no hidden data or battle requests are intercepted.
- try {let m=window.Dex?.moves?.get?.(name)||window.Dex?.getMove?.(name); if(m?.exists||m?.basePower) return {power:m.basePower||0,type:m.type||'?',accuracy:typeof m.accuracy==='number'?m.accuracy:100,category:m.category||'?',priority:m.priority||0}; }catch(e){}
- return null;
-}
-function refresh(){
- const room=activeBattle(); const body=panel.querySelector('#si-body');
- if(!room){body.innerHTML='<p>Waiting for a battle. Start a Gen 9 Random Battle in this app.</p>';return;}
- const moves=getMoves(room);
- if(!moves.length){body.innerHTML='<p>Battle detected, but move buttons are not currently visible. Wait for your turn.</p>';return;}
- const ranked=moves.map(m=>({...m,info:analyze(m.name)}));
- ranked.sort((a,b)=>((b.info?.power||0)*(b.info?.accuracy||100)/100)-((a.info?.power||0)*(a.info?.accuracy||100)/100));
- body.replaceChildren();
- const info=document.createElement('p'); info.className='si-muted'; info.textContent='Live move list · preliminary raw-power ordering only. NOT a best-move prediction: no STAB, type matchup, abilities, items, or damage simulation yet.'; body.append(info);
- ranked.forEach((m,i)=>{let div=document.createElement('div');div.className='si-move';div.textContent=`${i+1}. ${m.name}${m.disabled?' (unavailable)':''} — ${m.info?`${m.info.type}, ${m.info.category}, ${m.info.power} BP, ${m.info.accuracy}% accuracy`:'move data unavailable'}`;body.append(div)});
-}
-window.ShowdownInsight={refresh,toggle(){panel.style.display=panel.style.display==='none'?'block':'none';refresh()}};
-refresh();
+if(window.ShowdownInsight){window.ShowdownInsight.refresh();return;}
+const C=window.InsightCalc; const gen=C?.Generations.get(9);
+const panel=document.createElement('section');panel.style.cssText='position:fixed;z-index:2147483646;left:8px;right:8px;bottom:8px;max-height:58vh;overflow:auto;background:#101827;color:#f1f5f9;border:1px solid #526176;border-radius:14px;padding:14px;font:13px system-ui;display:none';document.body.append(panel);
+const heading=document.createElement('b');heading.textContent='Showdown Insight V3';panel.append(heading);const close=document.createElement('button');close.textContent='Close';close.onclick=()=>panel.style.display='none';panel.append(close);const body=document.createElement('div');panel.append(body);
+const id=s=>String(s||'').toLowerCase().replace(/[^a-z0-9]/g,'');const name=p=>p?.speciesForme||p?.details?.split(',')[0]||p?.name;const evs={hp:84,atk:84,def:84,spa:84,spd:84,spe:84};
+function line(t,parent=body){const e=document.createElement('div');e.style.padding='4px 0';e.textContent=t;parent.append(e);return e;}
+function lookup(kind,s){return window.Dex?.[kind]?.get?.(s)||window.Dex?.['get'+({moves:'Move',items:'Item',abilities:'Ability',species:'Species'}[kind])]?.(s);}
+function label(kind,s){return s?(lookup(kind,s)?.name||s):undefined;}
+function room(){const a=window.app?.curRoom;return a?.battle?a:Object.values(window.app?.rooms||{}).find(r=>r.battle&&r.request?.active);}
+function mon(p,priv){const options={level:p.level||100,evs,nature:'Serious',boosts:p.boosts||{},status:p.status||'',ability:label('abilities',priv?.ability||p.ability),item:label('items',priv?.item||p.item),teraType:p.terastallized||undefined};const q=new C.Pokemon(gen,name(p),options);if(priv?.stats){for(const k of ['atk','def','spa','spd','spe'])if(priv.stats[k]){const base=q.rawStats[k];const diff=priv.stats[k]-base;options.evs={...options.evs,[k]:Math.max(0,Math.min(252,84+Math.round(diff*400/options.level))) };}}const x=new C.Pokemon(gen,name(p),options);const fraction=p.maxhp?p.hp/p.maxhp:1;options.curHP=Math.max(1,Math.round(x.maxHP()*fraction));return new C.Pokemon(gen,name(p),options);}
+function field(b,reverse){const weather={raindance:'Rain',sunnyday:'Sun',sandstorm:'Sand',snow:'Snow',hail:'Hail'}[id(b.weather)];const side=s=>({isReflect:!!s?.sideConditions?.reflect,isLightScreen:!!s?.sideConditions?.lightscreen,isAuroraVeil:!!s?.sideConditions?.auroraveil});let a=side(b.mySide),d=side(b.farSide||b.yourSide);const terrain=['Electric','Grassy','Psychic','Misty'].find(t=>b.pseudoWeather?.some?.(x=>id(x[0])===id(t+'terrain')));return new C.Field({weather,terrain,attackerSide:reverse?d:a,defenderSide:reverse?a:d});}
+function result(a,d,m,b,reverse){const move=new C.Move(gen,m);const r=C.calculate(gen,a,d,move,field(b,reverse));const [lo,hi]=r.range();const hp=d.maxHP();const accuracy=lookup('moves',m)?.accuracy;const acc=typeof accuracy==='number'?accuracy/100:1;let ko='';try{ko=r.kochance().text||'';}catch{}return {lo:lo/hp*100,hi:hi/hp*100,ko,score:Math.min(d.curHP(),(lo+hi)/2)*acc,move:m};}
+function refresh(){if(panel.style.display==='none')return;body.replaceChildren();try{if(!gen){line('Calculator bundle missing.');return;}const r=room(),b=r?.battle;if(!b){line('Waiting for battle.');return;}const a=b.mySide?.active?.[0],d=(b.farSide||b.yourSide)?.active?.[0],req=r.request,priv=req?.side?.pokemon?.find(p=>p.active);if(!a||!d){line('Waiting for active Pokémon.');return;}line(`${name(a)} vs ${name(d)}`);line('Estimated random battle spreads: 84 EVs, neutral nature. Unknown items, abilities and field effects may change results.');const own=mon(a,priv),foe=mon(d);const moves=req?.active?.[0]?.moves?.filter(m=>!m.disabled&&m.pp!==0).map(m=>m.move||m.id)||[];const rows=[];for(const m of moves){try{rows.push(result(own,foe,m,b,false));}catch(e){line(m+': unavailable ('+e.message+')');}}rows.sort((a,b)=>b.score-a.score);rows.forEach((x,i)=>line(`${i===0&&x.score>0?'★ ':''}${x.move}: ${x.lo.toFixed(1)}–${x.hi.toFixed(1)}% max HP | ${x.ko||'KO chance unavailable'}`));line('★ Highest estimated immediate damage; not a strategic guarantee.');line('Opponent threat prediction (revealed moves only):');const seen=[...new Set([...(d.moveTrack||[]).map(x=>x[0]),...(d.moves||[])])].filter(x=>typeof x==='string');const threats=[];for(const m of seen){try{threats.push(result(foe,own,m,b,true));}catch{}}threats.sort((a,b)=>b.score-a.score);for(const x of threats.slice(0,4))line(`${x.move}: ${x.lo.toFixed(1)}–${x.hi.toFixed(1)}% of your max HP`);if(!threats.length)line('No revealed moves to evaluate. Hidden moves are unknown.');line('Your team:');for(const p of req?.side?.pokemon||[])line(`${name(p)} · ${p.condition||'?'} · ${p.ability||'?'} · ${p.item||'no item'} · ${(p.moves||[]).join(', ')}`);}catch(e){line('Analysis unavailable: '+e.message);}}
+window.ShowdownInsight={refresh,toggle(){panel.style.display=panel.style.display==='none'?'block':'none';refresh();}};setInterval(refresh,2000);
 })();
